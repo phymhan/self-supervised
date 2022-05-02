@@ -149,4 +149,9 @@ def get_cfg():
         "--eval_head", action="store_true", help="eval head output instead of model",
     )
     parser.add_argument("--imagenet_path", type=str, default="~/IN100/")
+
+    # ========== added ==========
+    parser.add_argument('--log_dir', type=str, default='logs/self-supervised')
+    parser.add_argument('resume', action='store_true', help='resume training', default=False)
+
     return parser.parse_args()

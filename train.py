@@ -1,3 +1,4 @@
+import os
 from tqdm import trange, tqdm
 import numpy as np
 import wandb
@@ -9,7 +10,9 @@ import torch.backends.cudnn as cudnn
 from cfg import get_cfg
 from datasets import get_ds
 from methods import get_method
-
+from utils import get_name_from_args, setup_wandb_run_id, logging_file
+import pdb
+st = pdb.set_trace
 
 def get_scheduler(optimizer, cfg):
     if cfg.lr_step == "cos":
@@ -28,7 +31,23 @@ def get_scheduler(optimizer, cfg):
 
 if __name__ == "__main__":
     cfg = get_cfg()
-    wandb.init(project=cfg.wandb, config=cfg)
+    # wandb.init(project=cfg.wandb, config=cfg)
+
+    cfg.resume = False  # TODO: fix this
+
+    os.makedirs(cfg.log_dir, exist_ok=True)
+    os.makedirs(os.path.join(cfg.log_dir, "weights"), exist_ok=True)
+
+    run_id = setup_wandb_run_id(cfg.log_dir, cfg.resume)
+    wandb.init(
+        project=cfg.wandb,
+        config=cfg,
+        name=get_name_from_args(cfg),
+        resume=True if cfg.resume else 'allow',
+        save_code=True,
+    )
+
+    file_to_update = logging_file(os.path.join(cfg.log_dir, 'train.log.txt'), 'a+')
 
     ds = get_ds(cfg.dataset)(cfg.bs, cfg, cfg.num_workers)
     model = get_method(cfg.method)(cfg)
@@ -67,13 +86,27 @@ if __name__ == "__main__":
 
         if len(cfg.drop) and ep == (cfg.epoch - cfg.drop[0]):
             eval_every = cfg.eval_every_drop
+        
+        line_to_print = f"Epoch {ep + 1}/{cfg.epoch} | Loss {np.mean(loss_ep):.4f} "
 
         if (ep + 1) % eval_every == 0:
             acc_knn, acc = model.get_acc(ds.clf, ds.test)
             wandb.log({"acc": acc[1], "acc_5": acc[5], "acc_knn": acc_knn}, commit=False)
+            line_to_print += f"| Acc {acc[1]:.4f} | Acc_5 {acc[5]:.4f} | Acc_knn {acc_knn:.4f}"
+        
+        if file_to_update:
+            file_to_update.write(line_to_print + '\n')
+            file_to_update.flush()
 
         if (ep + 1) % 100 == 0:
-            fname = f"data/{cfg.method}_{cfg.dataset}_{ep}.pt"
-            torch.save(model.state_dict(), fname)
+            # fname = f"data/{cfg.method}_{cfg.dataset}_{ep}.pt"
+            # torch.save(model.state_dict(), fname)
+            save_file = os.path.join(cfg.log_dir, "weights", f"{cfg.method}_{cfg.dataset}_{ep}.pt")
+            state = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'epoch': ep,
+            }
+            torch.save(state, save_file)
 
         wandb.log({"loss": np.mean(loss_ep), "ep": ep})
